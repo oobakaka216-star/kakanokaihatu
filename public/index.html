@@ -42,6 +42,8 @@
     .leaflet-tooltip-country::before { display: none; }
     .country-label-text { background: rgba(255,255,255,0.88); padding: 2px 6px; border-radius: 3px; font-size: 11px; color: #1e293b; border: 1px solid rgba(0,0,0,0.08); white-space: nowrap; display: inline-block; box-shadow: 0 1px 2px rgba(0,0,0,0.08); }
     .country-label { background: transparent !important; border: none !important; }
+    .city-label-text { background: rgba(255,255,255,0.92); padding: 1px 5px; border-radius: 2px; font-size: 10px; color: #334155; border: 1px solid rgba(0,0,0,0.06); white-space: nowrap; display: inline-block; box-shadow: 0 1px 1px rgba(0,0,0,0.06); }
+    .city-label { background: transparent !important; border: none !important; }
     @media (max-width: 768px) {
       #main { flex-direction: column; height: auto; }
       #map { height: 50vh; }
@@ -88,6 +90,7 @@
     const MAX_COMMENTS = 50;
     let countryMap = {};
     let countryLabelLayer = null;
+    let cityLabelLayer = null;
 
     function initMap() {
       map = L.map('map', {
@@ -309,13 +312,18 @@
 
     async function loadCountryData() {
       try {
-        const res = await fetch(`${API_BASE}/countries.json`);
-        if (res.ok) {
-          countryMap = await res.json();
+        const [countryRes, cityRes] = await Promise.all([
+          fetch(`${API_BASE}/countries.json`),
+          fetch(`${API_BASE}/cities.json`)
+        ]);
+        if (countryRes.ok) countryMap = await countryRes.json();
+        if (cityRes.ok) {
+          const cities = await cityRes.json();
           renderCountryLabels();
+          renderCityLabels(cities);
         }
       } catch (e) {
-        console.error('Failed to load country data:', e);
+        console.error('Failed to load data:', e);
       }
     }
 
@@ -340,6 +348,29 @@
         }
       });
       countryLabelLayer.addTo(map);
+    }
+
+    function renderCityLabels(cities) {
+      if (cityLabelLayer) {
+        map.removeLayer(cityLabelLayer);
+      }
+      cityLabelLayer = L.layerGroup();
+      Object.entries(cities).forEach(([code, data]) => {
+        if (data.lat != null && data.lng != null) {
+          const label = `${data.en} / ${data.ja}`;
+          const marker = L.marker([data.lat, data.lng], {
+            icon: L.divIcon({
+              className: 'city-label',
+              html: `<span class="city-label-text">${escapeHtml(label)}</span>`,
+              iconSize: [100, 18],
+              iconAnchor: [50, 9]
+            }),
+            interactive: false
+          });
+          cityLabelLayer.addLayer(marker);
+        }
+      });
+      cityLabelLayer.addTo(map);
     }
 
     initMap();
