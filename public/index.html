@@ -371,15 +371,14 @@ let placeQueryTimer = null;
         if (p.place !== 'admin') return;
         if (zoom < 7) return;
         const localName = p.name || '';
-        const enName = p.nameEn || '';
         const jaName = p.nameJa || '';
-        if (!localName && !enName && !jaName) return;
+        if (!localName && !jaName) return;
         const marker = L.marker([p.lat, p.lon], {
           icon: L.divIcon({
             className: 'place-label',
-            html: `<span class="place-label-text">${escapeHtml(localName)}${jaName && jaName !== localName ? '<br>' + escapeHtml(jaName) : ''}${enName && enName !== localName && enName !== jaName ? '<br>' + escapeHtml(enName) : ''}</span>`,
-            iconSize: [100, 32],
-            iconAnchor: [50, 16]
+            html: `<span class="place-label-text">${escapeHtml(localName)}${jaName && jaName !== localName ? '<br>' + escapeHtml(jaName) : ''}</span>`,
+            iconSize: [100, 24],
+            iconAnchor: [50, 12]
           }),
           interactive: false
         });
