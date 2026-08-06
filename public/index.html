@@ -40,6 +40,8 @@
     .hint { color: #64748b; font-size: 11px; }
     .leaflet-tooltip-country { background: rgba(255,255,255,0.92); border: 1px solid #e2e8f0; border-radius: 4px; padding: 2px 6px; font-size: 11px; color: #1e293b; box-shadow: 0 1px 2px rgba(0,0,0,0.1); white-space: nowrap; }
     .leaflet-tooltip-country::before { display: none; }
+    .country-label-text { background: rgba(255,255,255,0.88); padding: 2px 6px; border-radius: 3px; font-size: 11px; color: #1e293b; border: 1px solid rgba(0,0,0,0.08); white-space: nowrap; display: inline-block; box-shadow: 0 1px 2px rgba(0,0,0,0.08); }
+    .country-label { background: transparent !important; border: none !important; }
     @media (max-width: 768px) {
       #main { flex-direction: column; height: auto; }
       #map { height: 50vh; }
@@ -85,6 +87,7 @@
     const comments = [];
     const MAX_COMMENTS = 50;
     let countryMap = {};
+    let countryLabelLayer = null;
 
     function initMap() {
       map = L.map('map', {
@@ -283,8 +286,19 @@
     function getCountryLabel(raw) {
       if (!raw) return '国未設定';
       const key = String(raw).trim().toUpperCase();
-      const data = countryMap[key];
-      if (data) {
+      const direct = countryMap[key];
+      if (direct) {
+        if (direct.native && direct.native !== direct.en) {
+          return `${direct.native} / ${direct.en} / ${direct.ja}`;
+        }
+        return `${direct.en} / ${direct.ja}`;
+      }
+      const upper = String(raw).trim().toUpperCase();
+      const found = Object.entries(countryMap).find(([, v]) => {
+        return [v.native, v.en, v.ja].some((n) => String(n).trim().toUpperCase() === upper);
+      });
+      if (found) {
+        const data = found[1];
         if (data.native && data.native !== data.en) {
           return `${data.native} / ${data.en} / ${data.ja}`;
         }
@@ -298,10 +312,34 @@
         const res = await fetch(`${API_BASE}/countries.json`);
         if (res.ok) {
           countryMap = await res.json();
+          renderCountryLabels();
         }
       } catch (e) {
         console.error('Failed to load country data:', e);
       }
+    }
+
+    function renderCountryLabels() {
+      if (countryLabelLayer) {
+        map.removeLayer(countryLabelLayer);
+      }
+      countryLabelLayer = L.layerGroup();
+      Object.entries(countryMap).forEach(([code, data]) => {
+        if (data.lat != null && data.lng != null) {
+          const label = getCountryLabel(code);
+          const marker = L.marker([data.lat, data.lng], {
+            icon: L.divIcon({
+              className: 'country-label',
+              html: `<span class="country-label-text">${escapeHtml(label)}</span>`,
+              iconSize: [120, 20],
+              iconAnchor: [60, 10]
+            }),
+            interactive: false
+          });
+          countryLabelLayer.addLayer(marker);
+        }
+      });
+      countryLabelLayer.addTo(map);
     }
 
     initMap();
