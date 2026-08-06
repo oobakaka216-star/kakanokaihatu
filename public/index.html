@@ -96,6 +96,7 @@
     let countryLabelLayer = null;
     let cityLabelLayer = null;
     let placeLabelLayer = null;
+    let adminLineLayer = null;
     const cityCache = {};
     const placeCache = new Set();
     let placeQueryTimer = null;
@@ -300,11 +301,11 @@
       const west = bounds.getWest();
       const north = bounds.getNorth();
       const east = bounds.getEast();
-      const cacheKey = `${south.toFixed(1)},${west.toFixed(1)},${north.toFixed(1)},${east.toFixed(1)},${map.getZoom()}`;
+      const cacheKey = `adm4_${south.toFixed(1)},${west.toFixed(1)},${north.toFixed(1)},${east.toFixed(1)},${map.getZoom()}`;
       if (placeCache.has(cacheKey)) return;
       placeCache.add(cacheKey);
       try {
-        const query = `[out:json];(node["place"~"^(city|town|village|hamlet|suburb|neighbourhood|quarter|isolated_dwelling|locality)$"](${south},${west},${north},${east});way["place"~"^(city|town|village|hamlet|suburb|neighbourhood|quarter|isolated_dwelling|locality)$"](${south},${west},${north},${east}););out body;`;
+        const query = `[out:json];relation["boundary"="administrative"]["admin_level"="4"](${south},${west},${north},${east});out center;`;
         const res = await fetch('https://overpass-api.de/api/interpreter', {
           method: 'POST',
           body: 'data=' + encodeURIComponent(query)
@@ -317,10 +318,8 @@
           const name = tags.name || tags['name:en'] || tags['name:ja'] || null;
           const nameEn = tags['name:en'] || tags.name || null;
           const nameJa = tags['name:ja'] || tags.name || null;
-          if (name && el.lat && el.lon) {
-            places.push({ lat: el.lat, lon: el.lon, name, nameEn, nameJa, place: tags.place });
-          } else if (name && el.center && el.center.lat && el.center.lon) {
-            places.push({ lat: el.center.lat, lon: el.center.lon, name, nameEn, nameJa, place: tags.place });
+          if (name && el.center && el.center.lat && el.center.lon) {
+            places.push({ lat: el.center.lat, lon: el.center.lon, name, nameEn, nameJa, place: 'admin' });
           }
         });
         renderPlaceLabels(places);
@@ -336,14 +335,8 @@
       placeLabelLayer = L.layerGroup();
       const zoom = map.getZoom();
       places.forEach((p) => {
-        let show = false;
-        if (p.place === 'city' && zoom >= 3) show = true;
-        else if (p.place === 'town' && zoom >= 5) show = true;
-        else if ((p.place === 'village' || p.place === 'hamlet') && zoom >= 7) show = true;
-        else if ((p.place === 'suburb' || p.place === 'neighbourhood' || p.place === 'quarter') && zoom >= 9) show = true;
-        else if (p.place === 'locality' && zoom >= 11) show = true;
-        else if (p.place === 'isolated_dwelling' && zoom >= 13) show = true;
-        if (!show) return;
+        if (p.place !== 'admin') return;
+        if (zoom < 2) return;
         const localName = p.name || '';
         const enName = p.nameEn || '';
         const jaName = p.nameJa || '';
@@ -362,10 +355,62 @@
       placeLabelLayer.addTo(map);
     }
 
+    async function fetchAdminLines() {
+      const bounds = map.getBounds();
+      const south = bounds.getSouth();
+      const west = bounds.getWest();
+      const north = bounds.getNorth();
+      const east = bounds.getEast();
+      const cacheKey = `adm4_lines_${south.toFixed(1)},${west.toFixed(1)},${north.toFixed(1)},${east.toFixed(1)},${map.getZoom()}`;
+      if (placeCache.has(cacheKey)) return;
+      placeCache.add(cacheKey);
+      try {
+        const query = `[out:json][timeout:25];way["boundary"="administrative"]["admin_level"="4"](${south},${west},${north},${east});out body;>;out skel qt;`;
+        const res = await fetch('https://overpass-api.de/api/interpreter', {
+          method: 'POST',
+          body: 'data=' + encodeURIComponent(query)
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        const nodes = {};
+        const ways = [];
+        data.elements.forEach((el) => {
+          if (el.type === 'node') {
+            nodes[el.id] = [el.lat, el.lon];
+          } else if (el.type === 'way' && el.nodes && el.nodes.length > 1) {
+            ways.push(el);
+          }
+        });
+        renderAdminLines(ways, nodes);
+      } catch (e) {
+        console.error('Failed to fetch admin lines:', e);
+      }
+    }
+
+    function renderAdminLines(ways, nodes) {
+      if (adminLineLayer) {
+        map.removeLayer(adminLineLayer);
+      }
+      adminLineLayer = L.layerGroup();
+      ways.forEach((way) => {
+        const latlngs = way.nodes.map((nid) => nodes[nid]).filter(Boolean);
+        if (latlngs.length > 1) {
+          L.polyline(latlngs, {
+            color: '#64748b',
+            weight: 1.2,
+            opacity: 0.7,
+            interactive: false
+          }).addTo(adminLineLayer);
+        }
+      });
+      adminLineLayer.addTo(map);
+    }
+
     function schedulePlaceUpdate() {
       if (placeQueryTimer) clearTimeout(placeQueryTimer);
       placeQueryTimer = setTimeout(() => {
         fetchPlacesInBounds();
+        fetchAdminLines();
       }, 500);
     }
 
