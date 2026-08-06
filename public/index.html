@@ -46,6 +46,8 @@
     .city-label { background: transparent !important; border: none !important; }
     .city-marker-text { background: rgba(255,255,255,0.92); padding: 1px 5px; border-radius: 2px; font-size: 10px; color: #334155; border: 1px solid rgba(0,0,0,0.06); white-space: nowrap; display: inline-block; box-shadow: 0 1px 1px rgba(0,0,0,0.06); }
     .city-marker-label { background: transparent !important; border: none !important; }
+    .place-label-text { background: rgba(255,255,255,0.9); padding: 1px 5px; border-radius: 2px; font-size: 10px; color: #334155; border: 1px solid rgba(0,0,0,0.06); white-space: nowrap; display: inline-block; box-shadow: 0 1px 1px rgba(0,0,0,0.06); }
+    .place-label { background: transparent !important; border: none !important; }
     @media (max-width: 768px) {
       #main { flex-direction: column; height: auto; }
       #map { height: 50vh; }
@@ -93,7 +95,10 @@
     let countryMap = {};
     let countryLabelLayer = null;
     let cityLabelLayer = null;
+    let placeLabelLayer = null;
     const cityCache = {};
+    const placeCache = new Set();
+    let placeQueryTimer = null;
 
     function initMap() {
       map = L.map('map', {
@@ -124,6 +129,9 @@
           setViewerLocation(selectedViewerId, e.latlng.lat, e.latlng.lng, document.getElementById('country').value.trim());
         }
       });
+
+      map.on('moveend', schedulePlaceUpdate);
+      map.on('zoomend', schedulePlaceUpdate);
     }
 
     function connectWebSocket() {
@@ -286,6 +294,88 @@
       return null;
     }
 
+    async function fetchPlacesInBounds() {
+      const bounds = map.getBounds();
+      const south = bounds.getSouth();
+      const west = bounds.getWest();
+      const north = bounds.getNorth();
+      const east = bounds.getEast();
+      const cacheKey = `${south.toFixed(1)},${west.toFixed(1)},${north.toFixed(1)},${east.toFixed(1)},${map.getZoom()}`;
+      if (placeCache.has(cacheKey)) return;
+      placeCache.add(cacheKey);
+      try {
+        const query = `[out:json];(node["place"~"^(city|town|village|hamlet|suburb|neighbourhood|quarter|isolated_dwelling|locality)$"](${south},${west},${north},${east});way["place"~"^(city|town|village|hamlet|suburb|neighbourhood|quarter|isolated_dwelling|locality)$"](${south},${west},${north},${east}););out body;`;
+        const res = await fetch('https://overpass-api.de/api/interpreter', {
+          method: 'POST',
+          body: 'data=' + encodeURIComponent(query)
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        const places = [];
+        data.elements.forEach((el) => {
+          const tags = el.tags || {};
+          const name = tags.name || tags['name:en'] || tags['name:ja'] || null;
+          const nameEn = tags['name:en'] || tags.name || null;
+          const nameJa = tags['name:ja'] || tags.name || null;
+          if (name && el.lat && el.lon) {
+            places.push({ lat: el.lat, lon: el.lon, name, nameEn, nameJa, place: tags.place });
+          } else if (name && el.center && el.center.lat && el.center.lon) {
+            places.push({ lat: el.center.lat, lon: el.center.lon, name, nameEn, nameJa, place: tags.place });
+          }
+        });
+        renderPlaceLabels(places);
+      } catch (e) {
+        console.error('Failed to fetch places:', e);
+      }
+    }
+
+    function renderPlaceLabels(places) {
+      if (placeLabelLayer) {
+        map.removeLayer(placeLabelLayer);
+      }
+      placeLabelLayer = L.layerGroup();
+      const zoom = map.getZoom();
+      places.forEach((p) => {
+        let show = false;
+        if (p.place === 'city' && zoom >= 4) show = true;
+        else if (p.place === 'town' && zoom >= 6) show = true;
+        else if ((p.place === 'village' || p.place === 'hamlet') && zoom >= 8) show = true;
+        else if ((p.place === 'suburb' || p.place === 'neighbourhood' || p.place === 'quarter') && zoom >= 10) show = true;
+        else if (p.place === 'locality' && zoom >= 12) show = true;
+        else if (p.place === 'isolated_dwelling' && zoom >= 14) show = true;
+        if (!show) return;
+        let label = '';
+        if (p.nameEn && p.nameJa && p.nameEn !== p.nameJa) {
+          label = `${p.nameEn} / ${p.nameJa}`;
+        } else if (p.nameEn) {
+          label = p.nameEn;
+        } else if (p.nameJa) {
+          label = p.nameJa;
+        } else {
+          label = p.name;
+        }
+        if (!label) return;
+        const marker = L.marker([p.lat, p.lon], {
+          icon: L.divIcon({
+            className: 'place-label',
+            html: `<span class="place-label-text">${escapeHtml(label)}</span>`,
+            iconSize: [100, 16],
+            iconAnchor: [50, 8]
+          }),
+          interactive: false
+        });
+        placeLabelLayer.addLayer(marker);
+      });
+      placeLabelLayer.addTo(map);
+    }
+
+    function schedulePlaceUpdate() {
+      if (placeQueryTimer) clearTimeout(placeQueryTimer);
+      placeQueryTimer = setTimeout(() => {
+        fetchPlacesInBounds();
+      }, 500);
+    }
+
     async function setViewerLocation(id, lat, lng, country) {
       const city = await lookupCity(lat, lng);
       await fetch(`${API_BASE}/api/viewers/${id}/location`, {
@@ -424,6 +514,7 @@
 
     initMap();
     loadCountryData();
+    fetchPlacesInBounds();
     connectWebSocket();
     loadViewers();
   </script>
