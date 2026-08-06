@@ -348,8 +348,6 @@
         const enName = p.nameEn || '';
         const jaName = p.nameJa || '';
         if (!localName && !enName && !jaName) return;
-        const lines = [localName, jaName, enName].filter(Boolean);
-        const label = lines.join('<br>');
         const marker = L.marker([p.lat, p.lon], {
           icon: L.divIcon({
             className: 'place-label',
