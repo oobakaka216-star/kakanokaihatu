@@ -88,13 +88,15 @@
         center: [20, 0],
         zoom: 1,
         zoomControl: true,
-        dragging: false,
+        dragging: true,
         scrollWheelZoom: true,
         doubleClickZoom: true,
         touchZoom: true,
         boxZoom: false,
         keyboard: false,
-        worldCopyJump: false
+        worldCopyJump: false,
+        maxBounds: [[-90, -180], [90, 180]],
+        maxBoundsViscosity: 1.0
       });
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 4,
