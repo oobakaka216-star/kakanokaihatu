@@ -38,6 +38,8 @@
     footer button.secondary { background: #64748b; }
     footer button.danger { background: #ef4444; }
     .hint { color: #64748b; font-size: 11px; }
+    .leaflet-tooltip-country { background: rgba(255,255,255,0.92); border: 1px solid #e2e8f0; border-radius: 4px; padding: 2px 6px; font-size: 11px; color: #1e293b; box-shadow: 0 1px 2px rgba(0,0,0,0.1); white-space: nowrap; }
+    .leaflet-tooltip-country::before { display: none; }
     @media (max-width: 768px) {
       #main { flex-direction: column; height: auto; }
       #map { height: 50vh; }
@@ -181,6 +183,14 @@
           const iconHtml = v.icon ? `<img src="${escapeHtml(v.icon)}" style="width:32px;height:32px;border-radius:50%;vertical-align:middle;margin-right:6px;" onerror="this.style.display='none'" />` : '';
           const countryLabel = getCountryLabel(v.country);
           m.bindPopup(`<div style="min-width:150px;">${iconHtml}<b>${escapeHtml(v.name)}</b><br/><span style="color:#64748b;font-size:12px;">${countryLabel}</span><br/><span style="color:#94a3b8;font-size:11px;">${escapeHtml(v.lastSeen || '')}</span></div>`);
+          if (v.country) {
+            m.bindTooltip(countryLabel, {
+              permanent: true,
+              direction: 'top',
+              className: 'leaflet-tooltip-country',
+              offset: [0, -10]
+            });
+          }
         }
       });
     }
