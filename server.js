@@ -76,6 +76,7 @@ app.post('/api/wancom/webhook', (req, res) => {
       name,
       icon,
       country: '',
+      city: null,
       lat: null,
       lng: null,
       comments: [],
@@ -91,6 +92,7 @@ app.post('/api/wancom/webhook', (req, res) => {
       timestamp: new Date().toISOString()
     });
   }
+  if (body.city) viewer.city = body.city;
   viewer.lastSeen = new Date().toISOString();
 
   saveData();
@@ -104,6 +106,7 @@ app.post('/api/viewers/:id/location', (req, res) => {
   const viewer = viewers.find(v => v.id === req.params.id);
   if (!viewer) return res.status(404).json({ error: 'Not found' });
   viewer.country = String(req.body.country || '').trim();
+  if (req.body.city) viewer.city = req.body.city;
   if (req.body.lat != null) viewer.lat = Number(req.body.lat);
   if (req.body.lng != null) viewer.lng = Number(req.body.lng);
   saveData();
@@ -112,13 +115,14 @@ app.post('/api/viewers/:id/location', (req, res) => {
 });
 
 app.post('/api/viewers', (req, res) => {
-  const { name, icon, country, lat, lng } = req.body;
+  const { name, icon, country, city, lat, lng } = req.body;
   const viewer = {
     id: Date.now().toString(36) + Math.random().toString(36).slice(2),
     userId: name || 'manual_' + Date.now(),
     name: String(name || 'Unknown').trim(),
     icon: String(icon || '').trim(),
     country: String(country || '').trim(),
+    city: city || null,
     lat: lat != null ? Number(lat) : null,
     lng: lng != null ? Number(lng) : null,
     comments: [],
