@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>配信 海外視聴者マップ - わんコメ連携</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; height: 100%; font-family: "Hiragino Sans", "Noto Sans JP", sans-serif; background: #f8fafc; }
+    header { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; background: #1e293b; color: white; }
+    header h1 { margin: 0; font-size: 16px; }
+    #status { font-size: 12px; padding: 4px 8px; border-radius: 4px; background: #475569; }
+    #status.connected { background: #16a34a; }
+    #main { display: flex; height: calc(100vh - 140px); }
+    #map { flex: 1; height: 100%; }
+    #sidebar { width: 320px; display: flex; flex-direction: column; border-left: 1px solid #e2e8f0; background: white; }
+    #sidebar > div { flex: 1; overflow-y: auto; }
+    .panel-header { padding: 10px 12px; font-weight: 700; border-bottom: 1px solid #e2e8f0; background: #f1f5f9; font-size: 13px; }
+    #comments { padding: 8px; }
+    .comment { display: flex; gap: 8px; padding: 6px; border-bottom: 1px solid #f1f5f9; font-size: 13px; }
+    .comment img { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; flex-shrink: 0; }
+    .comment .meta { color: #64748b; font-size: 11px; }
+    .comment .text { margin-top: 2px; word-break: break-word; }
+    #viewer-list { padding: 8px; }
+    .viewer-item { display: flex; align-items: center; gap: 8px; padding: 8px; border-radius: 6px; cursor: pointer; border-bottom: 1px solid #f1f5f9; }
+    .viewer-item:hover { background: #f8fafc; }
+    .viewer-item.selected { background: #dbeafe; outline: 2px solid #2563eb; }
+    .viewer-item img { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; flex-shrink: 0; }
+    .viewer-item .info { flex: 1; min-width: 0; }
+    .viewer-item .name { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .viewer-item .country { font-size: 11px; color: #64748b; }
+    .viewer-item .country.missing { color: #ef4444; }
+    .viewer-item .badge { font-size: 10px; padding: 2px 6px; border-radius: 4px; background: #fef3c7; color: #92400e; }
+    footer { display: flex; gap: 8px; align-items: center; padding: 10px 16px; background: white; border-top: 1px solid #e2e8f0; flex-wrap: wrap; }
+    footer input { padding: 8px 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 13px; }
+    footer button { padding: 8px 12px; border: 0; border-radius: 6px; background: #2563eb; color: white; cursor: pointer; font-size: 13px; }
+    footer button.secondary { background: #64748b; }
+    footer button.danger { background: #ef4444; }
+    .hint { color: #64748b; font-size: 11px; }
+    @media (max-width: 768px) {
+      #main { flex-direction: column; height: auto; }
+      #map { height: 50vh; }
+      #sidebar { width: 100%; height: 300px; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>配信 海外視聴者マップ</h1>
+    <span id="status">切断</span>
+  </header>
+
+  <div id="main">
+    <div id="map"></div>
+    <div id="sidebar">
+      <div>
+        <div class="panel-header">コメントFeed (わんコメ)</div>
+        <div id="comments"></div>
+      </div>
+      <div>
+        <div class="panel-header">視聴者リスト</div>
+        <div id="viewer-list"></div>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    <input id="name" placeholder="名前" />
+    <input id="country" placeholder="国名" style="width: 120px;" />
+    <button id="save">ピンを保存</button>
+    <button id="clear" class="secondary">全削除</button>
+    <span class="hint">地図クリックでピン → 保存で記録 / わんコメから自動追加</span>
+  </footer>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    const API_BASE = '';
+    let map, currentMarker = null, selectedViewerId = null;
+    let viewers = [];
+    let ws = null;
+    const markerLayer = L.layerGroup();
+    const comments = [];
+    const MAX_COMMENTS = 50;
+
+    function initMap() {
+      map = L.map('map', {
+        center: [20, 0],
+        zoom: 1,
+        maxBounds: [[-90, -90], [90, 90]],
+        maxBoundsViscosity: 1.0,
+        worldCopyJump: false
+      });
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 18,
+        attribution: '&copy; OpenStreetMap'
+      }).addTo(map);
+      markerLayer.addTo(map);
+
+      map.on('click', (e) => {
+        if (currentMarker) map.removeLayer(currentMarker);
+        currentMarker = L.marker(e.latlng).addTo(map);
+        if (selectedViewerId) {
+          setViewerLocation(selectedViewerId, e.latlng.lat, e.latlng.lng, document.getElementById('country').value.trim());
+        }
+      });
+    }
+
+    function connectWebSocket() {
+      const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      ws = new WebSocket(`${protocol}//${location.host}`);
+      const statusEl = document.getElementById('status');
+
+      ws.onopen = () => {
+        statusEl.textContent = '接続済み';
+        statusEl.classList.add('connected');
+      };
+      ws.onclose = () => {
+        statusEl.textContent = '再接続中...';
+        statusEl.classList.remove('connected');
+        setTimeout(connectWebSocket, 3000);
+      };
+      ws.onerror = () => {
+        statusEl.textContent = 'エラー';
+      };
+      ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        switch (data.type) {
+          case 'init':
+            viewers = data.viewers || [];
+            renderViewers();
+            renderMarkers();
+            break;
+          case 'update':
+            const idx = viewers.findIndex(v => v.id === data.viewer.id);
+            if (idx >= 0) viewers[idx] = data.viewer;
+            else viewers.push(data.viewer);
+            renderViewers();
+            renderMarkers();
+            addComment(data.viewer.name, data.viewer.icon, data.viewer.comments?.[data.viewer.comments.length - 1]?.text || '');
+            break;
+          case 'delete':
+            viewers = viewers.filter(v => v.id !== data.id);
+            renderViewers();
+            renderMarkers();
+            break;
+          case 'clear':
+            viewers = [];
+            renderViewers();
+            renderMarkers();
+            break;
+        }
+      };
+    }
+
+    async function loadViewers() {
+      try {
+        const res = await fetch(`${API_BASE}/api/viewers`);
+        viewers = await res.json();
+        renderViewers();
+        renderMarkers();
+      } catch (e) {
+        console.error('Failed to load viewers:', e);
+      }
+    }
+
+    function renderMarkers() {
+      markerLayer.clearLayers();
+      viewers.forEach((v) => {
+        if (v.lat != null && v.lng != null) {
+          const m = L.marker([v.lat, v.lng]).addTo(markerLayer);
+          const iconHtml = v.icon ? `<img src="${escapeHtml(v.icon)}" style="width:32px;height:32px;border-radius:50%;vertical-align:middle;margin-right:6px;" onerror="this.style.display='none'" />` : '';
+          m.bindPopup(`<div style="min-width:150px;">${iconHtml}<b>${escapeHtml(v.name)}</b><br/><span style="color:#64748b;font-size:12px;">${escapeHtml(v.country || '国未設定')}</span><br/><span style="color:#94a3b8;font-size:11px;">${escapeHtml(v.lastSeen || '')}</span></div>`);
+        }
+      });
+    }
+
+    function renderViewers() {
+      const container = document.getElementById('viewer-list');
+      if (!viewers.length) {
+        container.innerHTML = '<p style="color:#94a3b8;font-size:13px;padding:8px;">視聴者がいません。</p>';
+        return;
+      }
+      container.innerHTML = viewers.map((v) => {
+        const isSelected = v.id === selectedViewerId;
+        const countryClass = v.country ? '' : 'missing';
+        const countryText = v.country || '国未設定';
+        const iconHtml = v.icon ? `<img src="${escapeHtml(v.icon)}" onerror="this.style.display='none'" />` : '<div style="width:36px;height:36px;border-radius:50%;background:#e2e8f0;display:flex;align-items:center;justify-content:center;font-size:12px;color:#64748b;">?</div>';
+        return `<div class="viewer-item ${isSelected ? 'selected' : ''}" data-id="${v.id}">
+          ${iconHtml}
+          <div class="info">
+            <div class="name">${escapeHtml(v.name)}</div>
+            <div class="country ${countryClass}">${escapeHtml(countryText)}</div>
+          </div>
+          ${!v.country ? '<span class="badge">要設定</span>' : ''}
+          <button class="danger" data-del="${v.id}" style="padding:4px 8px;font-size:11px;">削除</button>
+        </div>`;
+      }).join('');
+
+      container.querySelectorAll('.viewer-item').forEach((el) => {
+        el.addEventListener('click', (e) => {
+          if (e.target.closest('button')) return;
+          selectedViewerId = el.dataset.id;
+          renderViewers();
+        });
+      });
+      container.querySelectorAll('button[data-del]').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          if (!confirm('削除しますか？')) return;
+          await fetch(`${API_BASE}/api/viewers/${btn.dataset.del}`, { method: 'DELETE' });
+          if (selectedViewerId === btn.dataset.del) selectedViewerId = null;
+          loadViewers();
+        });
+      });
+    }
+
+    async function setViewerLocation(id, lat, lng, country) {
+      await fetch(`${API_BASE}/api/viewers/${id}/location`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lat, lng, country })
+      });
+      loadViewers();
+    }
+
+    document.getElementById('save').addEventListener('click', async () => {
+      const name = document.getElementById('name').value.trim();
+      const country = document.getElementById('country').value.trim();
+      if (!currentMarker) return alert('まず地図で場所を選択してください。');
+      await fetch(`${API_BASE}/api/viewers`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: name || 'Unknown', country, lat: currentMarker.getLatLng().lat, lng: currentMarker.getLatLng().lng })
+      });
+      document.getElementById('name').value = '';
+      document.getElementById('country').value = '';
+      if (currentMarker) { map.removeLayer(currentMarker); currentMarker = null; }
+      loadViewers();
+    });
+
+    document.getElementById('clear').addEventListener('click', async () => {
+      if (!confirm('全ての記録を削除しますか？')) return;
+      await fetch(`${API_BASE}/api/viewers`, { method: 'DELETE' });
+      selectedViewerId = null;
+      loadViewers();
+    });
+
+    function addComment(name, icon, text) {
+      const container = document.getElementById('comments');
+      const time = new Date().toLocaleTimeString('ja-JP');
+      const iconHtml = icon ? `<img src="${escapeHtml(icon)}" onerror="this.style.display='none'" />` : '';
+      const div = document.createElement('div');
+      div.className = 'comment';
+      div.innerHTML = `${iconHtml}<div><div class="meta">${escapeHtml(name)} · ${time}</div><div class="text">${escapeHtml(text)}</div></div>`;
+      container.insertBefore(div, container.firstChild);
+      while (container.children.length > MAX_COMMENTS) container.removeChild(container.lastChild);
+    }
+
+    function escapeHtml(s) {
+      return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    }
+
+    initMap();
+    connectWebSocket();
+    loadViewers();
+  </script>
+</body>
+</html>

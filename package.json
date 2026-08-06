@@ -1,0 +1,14 @@
+{
+  "name": "stream-viewer-map",
+  "version": "1.0.0",
+  "description": "配信海外視聴者マップ - わんコメ連携",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "ws": "^8.16.0"
+  }
+}
