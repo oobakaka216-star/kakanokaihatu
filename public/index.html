@@ -92,14 +92,18 @@
     const markerLayer = L.layerGroup();
     const comments = [];
     const MAX_COMMENTS = 50;
-    let countryMap = {};
-    let countryLabelLayer = null;
-    let cityLabelLayer = null;
-    let placeLabelLayer = null;
-    let adminLineLayer = null;
-    const cityCache = {};
-    const placeCache = new Set();
-    let placeQueryTimer = null;
+let countryMap = {};
+let countryLabelLayer = null;
+let cityLabelLayer = null;
+let placeLabelLayer = null;
+let adminLineLayer = null;
+let prefectureMap = {};
+let prefectureLabelLayer = null;
+let countryBorderLayer = null;
+const cityCache = {};
+const placeCache = new Set();
+const nominatimCache = {};
+let placeQueryTimer = null;
 
     function initMap() {
       map = L.map('map', {
@@ -116,7 +120,7 @@
         maxBounds: [[-90, -180], [90, 180]],
         maxBoundsViscosity: 1.0
       });
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
         maxZoom: 10,
         noWrap: true,
         attribution: '&copy; OpenStreetMap'
@@ -316,15 +320,44 @@
         data.elements.forEach((el) => {
           const tags = el.tags || {};
           const name = tags.name || tags['name:en'] || tags['name:ja'] || null;
-          const nameEn = tags['name:en'] || tags.name || null;
-          const nameJa = tags['name:ja'] || tags.name || null;
+          const nameEn = tags['name:en'] || null;
+          const nameJa = tags['name:ja'] || null;
           if (name && el.center && el.center.lat && el.center.lon) {
-            places.push({ lat: el.center.lat, lon: el.center.lon, name, nameEn, nameJa, place: 'admin' });
+            places.push({ lat: el.center.lat, lon: el.center.lon, name, nameEn, nameJa, place: 'admin', id: el.id });
           }
         });
         renderPlaceLabels(places);
+        await fillMissingEnglishNames(places);
       } catch (e) {
         console.error('Failed to fetch places:', e);
+      }
+    }
+
+    async function fillMissingEnglishNames(places) {
+      const missing = places.filter(p => !p.nameEn);
+      if (!missing.length) return;
+      for (const place of missing) {
+        const cacheKey = `${place.lat.toFixed(2)},${place.lon.toFixed(2)}`;
+        if (nominatimCache[cacheKey]) {
+          place.nameEn = nominatimCache[cacheKey];
+          renderPlaceLabels(places);
+          continue;
+        }
+        try {
+          const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${place.lat}&lon=${place.lon}&accept-language=en&zoom=10`);
+          if (res.ok) {
+            const data = await res.json();
+            const enName = data.address?.state || data.address?.county || data.address?.region || data.address?.province || null;
+            if (enName) {
+              nominatimCache[cacheKey] = enName;
+              place.nameEn = enName;
+              renderPlaceLabels(places);
+            }
+          }
+        } catch (e) {
+          console.error('Nominatim fallback failed:', e);
+        }
+        await new Promise(r => setTimeout(r, 1000));
       }
     }
 
@@ -344,7 +377,7 @@
         const marker = L.marker([p.lat, p.lon], {
           icon: L.divIcon({
             className: 'place-label',
-            html: `<span class="place-label-text">${escapeHtml(localName)}${jaName ? '<br>' + escapeHtml(jaName) : ''}${enName ? '<br>' + escapeHtml(enName) : ''}</span>`,
+            html: `<span class="place-label-text">${escapeHtml(localName)}${jaName && jaName !== localName ? '<br>' + escapeHtml(jaName) : ''}${enName && enName !== localName && enName !== jaName ? '<br>' + escapeHtml(enName) : ''}</span>`,
             iconSize: [120, 40],
             iconAnchor: [60, 20]
           }),
@@ -489,9 +522,10 @@
 
     async function loadCountryData() {
       try {
-        const [countryRes, cityRes] = await Promise.all([
+        const [countryRes, cityRes, prefRes] = await Promise.all([
           fetch(`${API_BASE}/countries.json`),
-          fetch(`${API_BASE}/cities.json`)
+          fetch(`${API_BASE}/cities.json`),
+          fetch(`${API_BASE}/prefectures.json`)
         ]);
         if (countryRes.ok) countryMap = await countryRes.json();
         if (cityRes.ok) {
@@ -499,8 +533,34 @@
           renderCountryLabels();
           renderCityLabels(cities);
         }
+        if (prefRes.ok) {
+          prefectureMap = await prefRes.json();
+          renderPrefectureLabels();
+        }
       } catch (e) {
         console.error('Failed to load data:', e);
+      }
+    }
+
+    async function loadCountryBorders() {
+      try {
+        const res = await fetch(`${API_BASE}/countries.geojson`);
+        if (!res.ok) return;
+        const geojson = await res.json();
+        if (countryBorderLayer) {
+          map.removeLayer(countryBorderLayer);
+        }
+        countryBorderLayer = L.geoJSON(geojson, {
+          style: {
+            color: '#1e293b',
+            weight: 1.5,
+            opacity: 0.8,
+            fillColor: 'transparent',
+            fillOpacity: 0
+          }
+        }).addTo(map);
+      } catch (e) {
+        console.error('Failed to load country borders:', e);
       }
     }
 
@@ -525,6 +585,29 @@
         }
       });
       countryLabelLayer.addTo(map);
+    }
+
+    function renderPrefectureLabels() {
+      if (prefectureLabelLayer) {
+        map.removeLayer(prefectureLabelLayer);
+      }
+      prefectureLabelLayer = L.layerGroup();
+      Object.entries(prefectureMap).forEach(([code, data]) => {
+        if (data.lat != null && data.lng != null) {
+          const label = `${data.en} / ${data.ja}`;
+          const marker = L.marker([data.lat, data.lng], {
+            icon: L.divIcon({
+              className: 'country-label',
+              html: `<span class="country-label-text">${escapeHtml(label)}</span>`,
+              iconSize: [120, 20],
+              iconAnchor: [60, 10]
+            }),
+            interactive: false
+          });
+          prefectureLabelLayer.addLayer(marker);
+        }
+      });
+      prefectureLabelLayer.addTo(map);
     }
 
     function renderCityLabels(cities) {
@@ -552,6 +635,7 @@
 
     initMap();
     loadCountryData();
+    loadCountryBorders();
     fetchPlacesInBounds();
     connectWebSocket();
     loadViewers();

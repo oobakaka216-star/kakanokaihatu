@@ -1,2 +1,5 @@
 node_modules/
 data/viewers.json
+test-results/
+playwright-report/
+public/countries.geojson
