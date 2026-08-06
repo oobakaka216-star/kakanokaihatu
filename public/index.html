@@ -87,12 +87,18 @@
       map = L.map('map', {
         center: [20, 0],
         zoom: 1,
-        maxBounds: [[-90, -90], [90, 90]],
-        maxBoundsViscosity: 1.0,
+        zoomControl: false,
+        dragging: false,
+        scrollWheelZoom: false,
+        doubleClickZoom: false,
+        touchZoom: false,
+        boxZoom: false,
+        keyboard: false,
         worldCopyJump: false
       });
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        maxZoom: 18,
+        maxZoom: 1,
+        noWrap: true,
         attribution: '&copy; OpenStreetMap'
       }).addTo(map);
       markerLayer.addTo(map);
