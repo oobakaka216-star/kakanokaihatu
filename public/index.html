@@ -369,7 +369,7 @@ let placeQueryTimer = null;
       const zoom = map.getZoom();
       places.forEach((p) => {
         if (p.place !== 'admin') return;
-        if (zoom < 2) return;
+        if (zoom < 7) return;
         const localName = p.name || '';
         const enName = p.nameEn || '';
         const jaName = p.nameJa || '';
@@ -385,7 +385,9 @@ let placeQueryTimer = null;
         });
         placeLabelLayer.addLayer(marker);
       });
-      placeLabelLayer.addTo(map);
+      if (zoom >= 7) {
+        placeLabelLayer.addTo(map);
+      }
     }
 
     async function fetchAdminLines() {
@@ -584,7 +586,7 @@ let placeQueryTimer = null;
           countryLabelLayer.addLayer(marker);
         }
       });
-      countryLabelLayer.addTo(map);
+      // visibility is controlled by checkLabelVisibility()
     }
 
     function renderPrefectureLabels() {
@@ -607,7 +609,7 @@ let placeQueryTimer = null;
           prefectureLabelLayer.addLayer(marker);
         }
       });
-      prefectureLabelLayer.addTo(map);
+      // visibility is controlled by checkLabelVisibility()
     }
 
     function renderCityLabels(cities) {
@@ -630,13 +632,24 @@ let placeQueryTimer = null;
           cityLabelLayer.addLayer(marker);
         }
       });
-      cityLabelLayer.addTo(map);
+      // visibility is controlled by checkLabelVisibility()
+    }
+
+    function checkLabelVisibility() {
+      const show = map.getZoom() >= 7;
+      [countryLabelLayer, prefectureLabelLayer, cityLabelLayer].forEach(layer => {
+        if (!layer) return;
+        if (show && !map.hasLayer(layer)) layer.addTo(map);
+        if (!show && map.hasLayer(layer)) map.removeLayer(layer);
+      });
     }
 
     initMap();
     loadCountryData();
     loadCountryBorders();
     fetchPlacesInBounds();
+    map.on('zoomend', checkLabelVisibility);
+    checkLabelVisibility();
     connectWebSocket();
     loadViewers();
   </script>
