@@ -82,6 +82,7 @@
     const markerLayer = L.layerGroup();
     const comments = [];
     const MAX_COMMENTS = 50;
+    let countryMap = {};
 
     function initMap() {
       map = L.map('map', {
@@ -99,7 +100,7 @@
         maxBoundsViscosity: 1.0
       });
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        maxZoom: 4,
+        maxZoom: 10,
         noWrap: true,
         attribution: '&copy; OpenStreetMap'
       }).addTo(map);
@@ -178,7 +179,8 @@
         if (v.lat != null && v.lng != null) {
           const m = L.marker([v.lat, v.lng]).addTo(markerLayer);
           const iconHtml = v.icon ? `<img src="${escapeHtml(v.icon)}" style="width:32px;height:32px;border-radius:50%;vertical-align:middle;margin-right:6px;" onerror="this.style.display='none'" />` : '';
-          m.bindPopup(`<div style="min-width:150px;">${iconHtml}<b>${escapeHtml(v.name)}</b><br/><span style="color:#64748b;font-size:12px;">${escapeHtml(v.country || '国未設定')}</span><br/><span style="color:#94a3b8;font-size:11px;">${escapeHtml(v.lastSeen || '')}</span></div>`);
+          const countryLabel = getCountryLabel(v.country);
+          m.bindPopup(`<div style="min-width:150px;">${iconHtml}<b>${escapeHtml(v.name)}</b><br/><span style="color:#64748b;font-size:12px;">${countryLabel}</span><br/><span style="color:#94a3b8;font-size:11px;">${escapeHtml(v.lastSeen || '')}</span></div>`);
         }
       });
     }
@@ -191,14 +193,14 @@
       }
       container.innerHTML = viewers.map((v) => {
         const isSelected = v.id === selectedViewerId;
+        const countryLabel = getCountryLabel(v.country);
         const countryClass = v.country ? '' : 'missing';
-        const countryText = v.country || '国未設定';
         const iconHtml = v.icon ? `<img src="${escapeHtml(v.icon)}" onerror="this.style.display='none'" />` : '<div style="width:36px;height:36px;border-radius:50%;background:#e2e8f0;display:flex;align-items:center;justify-content:center;font-size:12px;color:#64748b;">?</div>';
         return `<div class="viewer-item ${isSelected ? 'selected' : ''}" data-id="${v.id}">
           ${iconHtml}
           <div class="info">
             <div class="name">${escapeHtml(v.name)}</div>
-            <div class="country ${countryClass}">${escapeHtml(countryText)}</div>
+            <div class="country ${countryClass}">${escapeHtml(countryLabel)}</div>
           </div>
           ${!v.country ? '<span class="badge">要設定</span>' : ''}
           <button class="danger" data-del="${v.id}" style="padding:4px 8px;font-size:11px;">削除</button>
@@ -268,7 +270,32 @@
       return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     }
 
+    function getCountryLabel(raw) {
+      if (!raw) return '国未設定';
+      const key = String(raw).trim().toUpperCase();
+      const data = countryMap[key];
+      if (data) {
+        if (data.native && data.native !== data.en) {
+          return `${data.native} / ${data.en} / ${data.ja}`;
+        }
+        return `${data.en} / ${data.ja}`;
+      }
+      return raw;
+    }
+
+    async function loadCountryData() {
+      try {
+        const res = await fetch(`${API_BASE}/countries.json`);
+        if (res.ok) {
+          countryMap = await res.json();
+        }
+      } catch (e) {
+        console.error('Failed to load country data:', e);
+      }
+    }
+
     initMap();
+    loadCountryData();
     connectWebSocket();
     loadViewers();
   </script>
