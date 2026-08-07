@@ -1,3 +1,9 @@
 {
-  "forwardPorts": [3000]
+  "forwardPorts": [3000],
+  "portsAttributes": {
+    "3000": {
+      "label": "Stream Viewer Map",
+      "onAutoForward": "openBrowser"
+    }
+  }
 }
