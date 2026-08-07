@@ -226,7 +226,7 @@ let placeQueryTimer = null;
             });
           }
           if (v.city) {
-            const cityLabel = `${v.city.en || v.city} / ${v.city.ja || v.city}`;
+            const cityLabel = v.city.ja || v.city.en || v.city;
             L.marker([v.lat, v.lng], {
               icon: L.divIcon({
                 className: 'city-marker-label',
@@ -502,10 +502,7 @@ let placeQueryTimer = null;
       const key = String(raw).trim().toUpperCase();
       const direct = countryMap[key];
       if (direct) {
-        if (direct.native && direct.native !== direct.en) {
-          return `${direct.native} / ${direct.en} / ${direct.ja}`;
-        }
-        return `${direct.en} / ${direct.ja}`;
+        return direct.ja || direct.native || raw;
       }
       const upper = String(raw).trim().toUpperCase();
       const found = Object.entries(countryMap).find(([, v]) => {
@@ -513,10 +510,7 @@ let placeQueryTimer = null;
       });
       if (found) {
         const data = found[1];
-        if (data.native && data.native !== data.en) {
-          return `${data.native} / ${data.en} / ${data.ja}`;
-        }
-        return `${data.en} / ${data.ja}`;
+        return data.ja || data.native || raw;
       }
       return raw;
     }
@@ -595,7 +589,7 @@ let placeQueryTimer = null;
       prefectureLabelLayer = L.layerGroup();
       Object.entries(prefectureMap).forEach(([code, data]) => {
         if (data.lat != null && data.lng != null) {
-          const label = `${data.en} / ${data.ja}`;
+          const label = data.ja || data.en || data.native;
           const marker = L.marker([data.lat, data.lng], {
             icon: L.divIcon({
               className: 'country-label',
@@ -618,7 +612,7 @@ let placeQueryTimer = null;
       cityLabelLayer = L.layerGroup();
       Object.entries(cities).forEach(([code, data]) => {
         if (data.lat != null && data.lng != null) {
-          const label = `${data.en} / ${data.ja}`;
+          const label = data.ja || data.en || data.native;
           const marker = L.marker([data.lat, data.lng], {
             icon: L.divIcon({
               className: 'city-label',
